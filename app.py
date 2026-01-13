@@ -302,20 +302,22 @@ else:
         submitted = st.form_submit_button("제출")
 
     if submitted:
-        user = normalize_answer(user_input)
-        gold = normalize_answer(answers[quiz["current"]])
+    user = normalize_answer(user_input)
+    gold = normalize_answer(answers[quiz["current"]])
 
-        if user == gold:
-            quiz["correct"] += 1
-            quiz["feedback"] = "🟢 정답! ✅"
-            quiz["current"] += 1
-            if quiz["current"] >= total:
-                quiz["done"] = True
-        else:
-            quiz["wrong"] += 1
-            quiz["feedback"] = f"🔴 오답! ❌  정답: **{gold}**"
+    if user == gold:
+        quiz["correct"] += 1
+        quiz["feedback"] = "🟢 정답! ✅"
+    else:
+        quiz["wrong"] += 1
+        quiz["feedback"] = f"🔴 오답! ❌  정답: **{gold}**"
 
-        st.rerun()
+    # ✅ 정답이든 오답이든 무조건 다음 빈칸으로 이동
+    quiz["current"] += 1
+    if quiz["current"] >= total:
+        quiz["done"] = True
+
+    st.rerun()
 
 # Feedback area
 if quiz["feedback"]:
