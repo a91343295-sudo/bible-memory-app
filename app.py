@@ -301,21 +301,19 @@ else:
         user_input = st.text_input("정답 단어를 입력하고 Enter(제출)하세요", value="")
         submitted = st.form_submit_button("제출")
 
-    if submitted:
+if submitted:
     user = normalize_answer(user_input)
     gold = normalize_answer(answers[quiz["current"]])
 
     if user == gold:
         quiz["correct"] += 1
         quiz["feedback"] = "🟢 정답! ✅"
+        quiz["current"] += 1
+        if quiz["current"] >= total:
+            quiz["done"] = True
     else:
         quiz["wrong"] += 1
         quiz["feedback"] = f"🔴 오답! ❌  정답: **{gold}**"
-
-    # ✅ 정답이든 오답이든 무조건 다음 빈칸으로 이동
-    quiz["current"] += 1
-    if quiz["current"] >= total:
-        quiz["done"] = True
 
     st.rerun()
 
