@@ -18,7 +18,7 @@ LEVEL_RATIOS = {
 BLANK_FMT = "__{n}__"
 RANDOM_SEED_DEFAULT = 42
 
-PROTECT_WORDS = set([
+PROTECT_WORDS_BASE = set([
     "의", "를", "을", "에", "에서", "에게", "와", "과", "도", "로", "으로",
     "그", "이", "저", "것", "수", "및", "또", "곧", "때", "나니", "하니",
 ])
@@ -68,8 +68,8 @@ def is_word_token(tok: str) -> bool:
     return bool(WORD_RE.fullmatch(tok))
 
 
-def should_protect(word: str) -> bool:
-    if word in PROTECT_WORDS:
+def should_protect(word: str, protect_words: set) -> bool:
+    if word in protect_words:
         return True
     if PROTECT_SINGLE_CHAR and len(word) == 1:
         return True
@@ -80,13 +80,13 @@ def normalize_answer(s: str) -> str:
     return (s or "").strip()
 
 
-def build_quiz(text: str, ratio: float, seed: int):
+def build_quiz(text: str, ratio: float, seed: int, protect_words: set):
     rng = random.Random(seed)
     tokens = tokenize_keep_separators(text)
 
     candidate_indices = [
         i for i, tok in enumerate(tokens)
-        if is_word_token(tok) and not should_protect(tok)
+        if is_word_token(tok) and not should_protect(tok, protect_words)
     ]
 
     if not candidate_indices:
@@ -108,7 +108,6 @@ def build_quiz(text: str, ratio: float, seed: int):
 
 
 def get_seed(ref: str, ratio: float, base_seed: int):
-    # 같은 구절+레벨이면 패턴이 어느 정도 고정되게
     base = abs(hash(ref)) % 10_000_000
     return base + base_seed + int(ratio * 1000)
 
@@ -117,7 +116,7 @@ def get_seed(ref: str, ratio: float, base_seed: int):
 # UI
 # ----------------------------
 st.title("📖 성경 암송 빈칸 퀴즈 (단어 입력형)")
-st.caption("구절을 붙여넣고, 레벨을 고른 다음 빈칸 단어를 입력하면 즉시 채점됩니다. 오답이면 정답을 보여줘요.")
+st.caption("구절을 붙여넣고 레벨을 고른 다음, 빈칸 단어를 입력하면 즉시 채점됩니다. 오답이어도 다음 빈칸으로 넘어가고, 마지막에 틀린 목록을 보여줘요.")
 
 default_text = """2026-01-04 | 기도에 대하여 | 습 1:6
 여호와를 배반하고 좇지 아니한 자와 여호와를 찾지도 아니하며 구하지도 아니한 자를 멸절하리라
@@ -136,11 +135,7 @@ default_text = """2026-01-04 | 기도에 대하여 | 습 1:6
 
 with st.sidebar:
     st.header("⚙️ 설정")
-    verses_text = st.text_area(
-        "구절 목록 붙여넣기 (블록 사이 빈 줄로 구분)",
-        value=default_text,
-        height=420
-    )
+    verses_text = st.text_area("구절 목록 붙여넣기 (블록 사이 빈 줄로 구분)", value=default_text, height=420)
 
     level = st.selectbox("레벨", list(LEVEL_RATIOS.keys()), index=1)
     ratio = LEVEL_RATIOS[level]
@@ -150,15 +145,16 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("빈칸 제외(보호) 단어")
     extra_protect = st.text_input("추가로 보호할 단어(쉼표로 구분)", value="여호와,주,예수")
+
+    protect_words = set(PROTECT_WORDS_BASE)
     if extra_protect.strip():
         for w in [x.strip() for x in extra_protect.split(",") if x.strip()]:
-            PROTECT_WORDS.add(w)
+            protect_words.add(w)
 
     st.markdown("---")
-    st.subheader("버튼")
     new_pattern = st.button("🔄 같은 구절에서 새 패턴(랜덤)")
 
-# parse verses
+# Parse verses
 try:
     records = parse_verses(verses_text)
 except Exception as e:
@@ -189,19 +185,19 @@ if "quiz" not in st.session_state:
         "wrong": 0,
         "done": False,
         "feedback": "",
-        "seed_override": None,  # for random pattern button
+        "seed_override": None,
+        "wrong_items": [],      # ✅ 틀린 기록 저장
     }
 
 quiz = st.session_state.quiz
 
-# handle new pattern
+# New pattern
 if new_pattern:
     quiz["seed_override"] = random.randint(1, 10_000_000)
     if quiz["active"]:
-        # rebuild with new seed immediately
         r = records[verse_idx]
         seed = get_seed(r["ref"], ratio, quiz["seed_override"])
-        tokens, _, answers = build_quiz(r["text"], ratio, seed)
+        tokens, _, answers = build_quiz(r["text"], ratio, seed, protect_words)
         quiz.update({
             "active": True,
             "tokens": tokens,
@@ -211,15 +207,17 @@ if new_pattern:
             "wrong": 0,
             "done": False,
             "feedback": "",
+            "wrong_items": [],   # ✅ 초기화
         })
+        st.rerun()
 
-# start quiz
+# Start quiz
 if start:
     r = records[verse_idx]
     seed_base = quiz["seed_override"] if quiz["seed_override"] is not None else int(base_seed)
     seed = get_seed(r["ref"], ratio, seed_base)
 
-    tokens, _, answers = build_quiz(r["text"], ratio, seed)
+    tokens, _, answers = build_quiz(r["text"], ratio, seed, protect_words)
     quiz.update({
         "active": True,
         "tokens": tokens,
@@ -229,13 +227,15 @@ if start:
         "wrong": 0,
         "done": False,
         "feedback": "",
+        "wrong_items": [],   # ✅ 초기화
     })
+    st.rerun()
 
-# If active, show quiz UI
 if not quiz["active"]:
     st.info("왼쪽에서 구절/레벨을 고른 뒤 **퀴즈 시작**을 눌러 주세요.")
     st.stop()
 
+# Active view
 r = records[verse_idx]
 st.subheader(f"🗓️ {r['date']} · {r['topic']} · 📍 {r['ref']}  |  {level}")
 
@@ -243,7 +243,6 @@ tokens = quiz["tokens"] or []
 answers = quiz["answers"] or []
 total = len(answers)
 
-# Display verse with blanks
 st.markdown(
     f"""
 <div style="padding:14px;border-radius:12px;border:1px solid rgba(0,0,0,0.15);">
@@ -253,7 +252,9 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.markdown(f"**진행:** {min(quiz['current']+1, total) if total>0 and not quiz['done'] else total}/{total}   |   ✅ {quiz['correct']}  ❌ {quiz['wrong']}")
+st.markdown(
+    f"**진행:** {min(quiz['current']+1, total) if total>0 and not quiz['done'] else total}/{total}   |   ✅ {quiz['correct']}  ❌ {quiz['wrong']}"
+)
 
 if total == 0:
     st.warning("빈칸이 생성되지 않았어요. 보호 단어가 너무 많거나 레벨 비율이 낮을 수 있어요.")
@@ -275,7 +276,14 @@ if stop_btn:
     st.rerun()
 
 if restart:
-    quiz.update({"current": 0, "correct": 0, "wrong": 0, "done": False, "feedback": ""})
+    quiz.update({
+        "current": 0,
+        "correct": 0,
+        "wrong": 0,
+        "done": False,
+        "feedback": "",
+        "wrong_items": [],   # ✅ 초기화
+    })
     st.rerun()
 
 if next_blank and not quiz["done"]:
@@ -291,10 +299,25 @@ if reveal and not quiz["done"]:
     st.rerun()
 
 # Answer input
-submitted = False  # ✅ 이 줄이 NameError를 막아줌
+submitted = False  # ✅ NameError 방지
 
 if quiz["done"]:
     st.success("끝! 🎉 모든 빈칸을 완료했어요.")
+
+    wrong_items = quiz.get("wrong_items", [])
+    if not wrong_items:
+        st.balloons()
+        st.info("완벽해요! ✅ 틀린 빈칸이 하나도 없어요.")
+    else:
+        st.subheader("🧾 내가 틀린 빈칸 모아보기")
+        st.caption("빈칸 번호 / 내가 쓴 답 / 정답")
+
+        for item in wrong_items:
+            st.markdown(
+                f"- **__{item['blank_no']}__**  |  "
+                f"내 답: `{item['your_answer']}`  →  "
+                f"정답: **{item['correct_answer']}**"
+            )
 else:
     cur_num = quiz["current"] + 1
     st.write(f"현재 빈칸: **{BLANK_FMT.format(n=cur_num)}**")
@@ -314,6 +337,13 @@ else:
             quiz["wrong"] += 1
             quiz["feedback"] = f"🔴 오답! ❌  정답: **{gold}**"
 
+            # ✅ 오답 기록 저장
+            quiz["wrong_items"].append({
+                "blank_no": quiz["current"] + 1,
+                "your_answer": user,
+                "correct_answer": gold,
+            })
+
         # ✅ 정답/오답 상관없이 다음 빈칸으로 이동
         quiz["current"] += 1
         if quiz["current"] >= total:
@@ -321,6 +351,6 @@ else:
 
         st.rerun()
 
-# Feedback area
-if quiz["feedback"]:
+# Feedback
+if quiz.get("feedback"):
     st.markdown(quiz["feedback"])
