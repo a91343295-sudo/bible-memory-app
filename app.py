@@ -291,6 +291,8 @@ if reveal and not quiz["done"]:
     st.rerun()
 
 # Answer input
+submitted = False  # ✅ 이 줄이 NameError를 막아줌
+
 if quiz["done"]:
     st.success("끝! 🎉 모든 빈칸을 완료했어요.")
 else:
@@ -301,21 +303,23 @@ else:
         user_input = st.text_input("정답 단어를 입력하고 Enter(제출)하세요", value="")
         submitted = st.form_submit_button("제출")
 
-if submitted:
-    user = normalize_answer(user_input)
-    gold = normalize_answer(answers[quiz["current"]])
+    if submitted:
+        user = normalize_answer(user_input)
+        gold = normalize_answer(answers[quiz["current"]])
 
-    if user == gold:
-        quiz["correct"] += 1
-        quiz["feedback"] = "🟢 정답! ✅"
+        if user == gold:
+            quiz["correct"] += 1
+            quiz["feedback"] = "🟢 정답! ✅"
+        else:
+            quiz["wrong"] += 1
+            quiz["feedback"] = f"🔴 오답! ❌  정답: **{gold}**"
+
+        # ✅ 정답/오답 상관없이 다음 빈칸으로 이동
         quiz["current"] += 1
         if quiz["current"] >= total:
             quiz["done"] = True
-    else:
-        quiz["wrong"] += 1
-        quiz["feedback"] = f"🔴 오답! ❌  정답: **{gold}**"
 
-    st.rerun()
+        st.rerun()
 
 # Feedback area
 if quiz["feedback"]:
